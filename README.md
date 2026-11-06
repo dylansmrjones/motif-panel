@@ -18,7 +18,7 @@ Before compiling, ensure you have the following development libraries installed 
 - `motif` (OpenMotif 2.3)
 - `gdk-pixbuf` (with SVG/PNG support enabled)
 - `librsvg` (required for SVG icon rendering)
-- `libmenu-cache from LXDE`
+- `libmenu-cache` (from LXDE, required for building main menu)
 - `glib` (including GIO for D-Bus communication)
 
 ## Compilation and Installation
@@ -33,7 +33,7 @@ Building and installing the panel is straightforward using the provided `Makefil
 
 2. **Compile the binary:**
    ```bash
-   make -j\$(nproc)
+   make
    ```
 
 3. **Install globally (installs to `/usr/local/bin`):**
