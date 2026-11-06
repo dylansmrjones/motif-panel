@@ -27,7 +27,7 @@ Building and installing the panel is straightforward using the provided `Makefil
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com
+   git clone https://github.com/dylansmrjones/motif-panel
    cd motif-panel
    ```
 

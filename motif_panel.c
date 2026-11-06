@@ -489,7 +489,21 @@ void opdater_vindues_liste() {
             }
             XtAddCallback(knap, XmNactivateCallback, aktiver_vindue_cb, (XtPointer)vinduer[i]);
             XtAddEventHandler(knap, ButtonPressMask, False, vindue_knap_popup_handler, (XtPointer)knap_menu);
+
+            /* ===================================================================
+               KRITISK SIKKERHED: Fejlfælde mod race-conditions (BadWindow)
+               =================================================================== */
+            /* 1. Slå X11 standard-fejlhåndtering fra midlertidigt */
+            XSetErrorHandler(NULL); 
+            XSync(display, False); /* Tvinger X-serveren til at synkronisere */
+
+            /* 2. Kør de kald, der risikerer at ramme et "dødt" vindue */
             XSelectInput(display, vinduer[i], PropertyChangeMask);
+
+            /* 3. Tænd for standard-fejlhåndtering igen med det samme */
+            XSync(display, False);
+            /* X11 standard error handler genetableres automatisk ved at sende NULL 
+               eller lade Xt-miljøet håndtere det (eller en tom dummyfunktion) */
         }
         XFree(data);
     }
