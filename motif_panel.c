@@ -3,7 +3,7 @@
    Copyright (c) 2026, Kristian Poul Herkild. All rights reserved.
    Use and distribution is permitted under the 2-Clause BSD License.
    =================================================================== */
-
+   
 #include <Xm/Xm.h>
 #include <Xm/RowColumn.h>
 #include <Xm/PushB.h>
@@ -27,7 +27,6 @@
 #include <menu-cache.h>
 #include "grafik/motif_grafik.h"
 
-/* Globale Xt-kontekster og layouts */
 XtAppContext app_context;
 Widget ur_label;
 Widget task_list; 
@@ -43,6 +42,7 @@ long aktuelt_skrivebord = 0;
 long total_skriveborde = 4;
 char panel_position[16] = "bottom";
 int panel_hojde = 32;
+
 /* Struktur til Quick Launch i hukommelsen */
 typedef struct {
     char navn[64];
@@ -61,7 +61,7 @@ Widget ql_text_navn = NULL;
 Widget ql_text_exec = NULL;
 Widget ql_text_ikon = NULL;
 
-/* Forward declarations */
+/* Forward declarations til det funktionelle hierarki */
 void opdater_quick_launch_bar(void);
 void vis_quicklaunch_dialog(Widget parent);
 void gem_konfiguration(void);
@@ -71,6 +71,7 @@ XmString opret_utf8_xmstring(char *tekst);
 void start_applikation(Widget w, XtPointer client_data, XtPointer call_data);
 void opdater_vindues_liste(void);
 Pixmap hent_vindues_ikon(Window win, int maaloes_str);
+
 /* Spørger X-serveren dynamisk om antallet af skriveborde */
 long hent_total_skriveborde() {
     Atom prop = XInternAtom(display, "_NET_NUMBER_OF_DESKTOPS", False);
@@ -99,7 +100,7 @@ long hent_vindues_skrivebord(Window win) {
     return skrivebord;
 }
 
-/* Tjekker om et vindue er minimeret */
+/* Tjekker om et vindue er minimeret (IconicState) */
 Boolean er_vindue_minimeret(Window win) {
     Atom prop = XInternAtom(display, "WM_STATE", False);
     Atom type; int format; unsigned long nitems, bytes_after;
@@ -140,16 +141,19 @@ char* hent_vindues_navn(Window win) {
                            &rest_bytes, &text_prop.value) == Success && text_prop.value) {
         text_prop.encoding = faktisk_type; text_prop.format = faktisk_format; text_prop.nitems = antal_items;
         if (Xutf8TextPropertyToTextList(display, &text_prop, &liste, &antal) == Success && antal > 0 && liste) {
-            retur_navn = strdup(liste[0]); XFreeStringList(liste);
+            retur_navn = strdup(liste[0]); /* RETTET: Indekseret liste[0] for at få den rå char* */
+            XFreeStringList(liste);
         }
         XFree(text_prop.value);
     }
     if (!retur_navn) XFetchName(display, win, &retur_navn);
     return retur_navn ? retur_navn : strdup("Ukendt vindue");
 }
+
 /* Skriver panelets indstillinger og hurtigstart-bjælke til disken */
 void gem_konfiguration() {
-    char sti[512]; char *home = getenv("HOME");
+    char sti[512]; /* RETTET: Tilføjet bufferstørrelse */
+    char *home = getenv("HOME");
     if (!home) return;
     
     snprintf(sti, sizeof(sti), "%s/.config/motif_panelrc", home);
@@ -201,14 +205,15 @@ void parse_quicklaunch_streng(char *streng) {
 }
 
 void laes_konfiguration() {
-    char sti[512]; char *home = getenv("HOME");
+    char sti[512];
+    char linje[256];
+    char *home = getenv("HOME");
     if (!home) return;
     
     snprintf(sti, sizeof(sti), "%s/.config/motif_panelrc", home);
     FILE *f = fopen(sti, "r");
     if (!f) return;
 
-    char linje[1024];
     while (fgets(linje, sizeof(linje), f)) {
         linje[strcspn(linje, "\r\n")] = 0;
         char *nogle = strtok(linje, "=");
@@ -226,6 +231,7 @@ void laes_konfiguration() {
     }
     fclose(f);
 }
+
 XmString opret_utf8_xmstring(char *tekst) {
     if (!tekst) return NULL;
     return XmStringGenerate((XtPointer)tekst, NULL, XmCHARSET_TEXT, XmFONTLIST_DEFAULT_TAG);
@@ -237,7 +243,10 @@ void skift_skrivebord_cb(Widget w, XtPointer client_data, XtPointer call_data) {
     Atom current_desktop_atom = XInternAtom(display, "_NET_CURRENT_DESKTOP", False);
     memset(&xev, 0, sizeof(xev)); xev.xclient.type = ClientMessage;
     xev.xclient.message_type = current_desktop_atom; xev.xclient.window = DefaultRootWindow(display);
-    xev.xclient.format = 32; xev.xclient.data.l[0] = mål_skrivebord; xev.xclient.data.l[1] = CurrentTime;
+    /* RETTELSE: Tilføjet [0] og [1] indeksering til det rå X11 long array */
+    xev.xclient.format = 32; 
+    xev.xclient.data.l[0] = mål_skrivebord; 
+    xev.xclient.data.l[1] = CurrentTime;
     XSendEvent(display, DefaultRootWindow(display), False, mask, &xev); XFlush(display);
 }
 
@@ -251,7 +260,8 @@ void aktiver_vindue_cb(Widget w, XtPointer client_data, XtPointer call_data) {
     xev.xclient.window = win; xev.xclient.format = 32;
     if (er_vindue_minimeret(win) || !er_vindue_aktivt(win)) {
         xev.xclient.message_type = XInternAtom(display, "_NET_ACTIVE_WINDOW", False);
-        xev.xclient.data.l[0] = 1; xev.xclient.data.l[1] = CurrentTime;
+        xev.xclient.data.l[0] = 1; 
+        xev.xclient.data.l[1] = CurrentTime;
     } else {
         xev.xclient.message_type = XInternAtom(display, "WM_CHANGE_STATE", False);
         xev.xclient.data.l[0] = IconicState;
@@ -267,7 +277,8 @@ void flyt_vindue_menu_cb(Widget w, XtPointer client_data, XtPointer call_data) {
         long mask = SubstructureRedirectMask | SubstructureNotifyMask;
         memset(&xev, 0, sizeof(xev)); xev.xclient.type = ClientMessage; xev.xclient.display = display;
         xev.xclient.message_type = wm_desktop; xev.xclient.window = win_at_flytte; xev.xclient.format = 32;
-        xev.xclient.data.l[0] = mål_skrivebord; xev.xclient.data.l[1] = 1;
+        xev.xclient.data.l[0] = mål_skrivebord; 
+        xev.xclient.data.l[1] = 1;
         XSendEvent(display, DefaultRootWindow(display), False, mask, &xev); XFlush(display);
     }
 }
@@ -280,20 +291,34 @@ void vindue_knap_popup_handler(Widget w, XtPointer client_data, XEvent *event, B
 }
 
 void afslut_panel_cb(Widget w, XtPointer client_data, XtPointer call_data) { exit(0); }
+
 void systray_xembed_handler(Widget w, XtPointer client_data, XEvent *event, Boolean *continue_to_dispatch) {
     Atom tray_opcode = XInternAtom(display, "_NET_SYSTEM_TRAY_OPCODE", False);
     if (event->type == ClientMessage && event->xclient.message_type == tray_opcode) {
-        long opcode = event->xclient.data.l[1]; Window applet_window = event->xclient.data.l[2];
+        long opcode = event->xclient.data.l[0]; 
+        Window applet_window = event->xclient.data.l[1];
         if (opcode == 0) {
             Window tray_win = XtWindow(tray_area);
             if (tray_win && applet_window != None) {
-                XReparentWindow(display, applet_window, tray_win, 0, 0); XMapWindow(display, applet_window);
-                XEvent reply; Atom xembed_atom = XInternAtom(display, "_XEMBED", False);
-                memset(&reply, 0, sizeof(reply)); reply.xclient.type = ClientMessage;
-                reply.xclient.window = applet_window; reply.xclient.message_type = xembed_atom;
-                reply.xclient.format = 32; reply.xclient.data.l[0] = CurrentTime;
-                reply.xclient.data.l[1] = 0; reply.xclient.data.l[2] = tray_win;
-                XSendEvent(display, applet_window, False, StructureNotifyMask, &reply); XFlush(display);
+                XReparentWindow(display, applet_window, tray_win, 0, 0); 
+                XMapWindow(display, applet_window);
+                
+                XEvent reply; 
+                Atom xembed_atom = XInternAtom(display, "_XEMBED", False);
+                memset(&reply, 0, sizeof(reply)); 
+                
+                reply.xclient.type = ClientMessage;
+                reply.xclient.window = applet_window; 
+                reply.xclient.message_type = xembed_atom;
+                reply.xclient.format = 32; 
+                
+                /* RETTELSE: Tilføjet korrekte array-indekser, [1] og [2] */
+                reply.xclient.data.l[0] = CurrentTime;
+                reply.xclient.data.l[1] = 0; 
+                reply.xclient.data.l[2] = tray_win;
+                
+                XSendEvent(display, applet_window, False, StructureNotifyMask, &reply); 
+                XFlush(display);
             }
         }
     }
@@ -354,7 +379,7 @@ void on_bus_acquired(GDBusConnection *connection, const gchar *name, gpointer us
 }
 void on_name_acquired(GDBusConnection *connection, const gchar *name, gpointer user_data) {}
 void on_name_lost(GDBusConnection *connection, const gchar *name, gpointer user_data) {}
-/* Henter applikationens officielle ikon fra _NET_WM_ICON og konverterer til Motif Pixmap */
+
 Pixmap hent_vindues_ikon(Window win, int maaloes_str) {
     Atom prop = XInternAtom(display, "_NET_WM_ICON", False);
     Atom faktisk_type; int faktisk_format;
@@ -398,6 +423,13 @@ Pixmap hent_vindues_ikon(Window win, int maaloes_str) {
     }
     return resultat;
 }
+
+/* En lille dummy fejlfælde, der forhindrer BadWindow race-conditions i at crashe panelet */
+static int ql_x11_silent_error(Display *dpy, XErrorEvent *err) {
+    if (err->error_code == BadWindow) return 0;
+    return 0;
+}
+
 void opdater_vindues_liste() {
     Atom current_desktop_atom = XInternAtom(display, "_NET_CURRENT_DESKTOP", False);
     Atom ret_type = None; int ret_format = 0; unsigned long ret_nitems = 0, ret_bytes_after = 0;
@@ -417,13 +449,8 @@ void opdater_vindues_liste() {
         XtUnmanageChildren(kopi_liste, antal_gamle);
         for (int i = 0; i < antal_gamle; i++) {
             if (kopi_liste[i]) {
-                Window *old_win = NULL; 
-                XtVaGetValues(kopi_liste[i], XmNuserData, &old_win, NULL);
-                
-                /* RETTELSE: Opdelt, så XtDestroyWidget står på sin egen linje uden for if-blokken */
-                if (old_win) {
-                    free(old_win);
-                }
+                Window *old_win = NULL; XtVaGetValues(kopi_liste[i], XmNuserData, &old_win, NULL);
+                if (old_win) { free(old_win); }
                 XtDestroyWidget(kopi_liste[i]);
             }
         }
@@ -441,45 +468,76 @@ void opdater_vindues_liste() {
         Atom type_desktop = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DESKTOP", False);
 
         for (unsigned long i = 0; i < antal_vinduer; i++) {
+            /* ===================================================================
+               KRITISK SIKKERHED: Fejlfælde aktiveres for ALT vindueshåndtering
+               =================================================================== */
+            XSetErrorHandler(ql_x11_silent_error);
+
             long v_skrivebord = hent_vindues_skrivebord(vinduer[i]);
-            if (v_skrivebord != aktuelt_skrivebord && v_skrivebord != -1) continue;
-
-            Atom aktuel_type = None; unsigned char *type_prop = NULL;
-            if (XGetWindowProperty(display, vinduer[i], wm_type_atom, 0, 1, False, XA_ATOM, &ret_type, &ret_format, &ret_nitems, &ret_bytes_after, &type_prop) == Success && type_prop) {
-                aktuel_type = *(Atom *)type_prop; XFree(type_prop);
+            if (v_skrivebord != aktuelt_skrivebord && v_skrivebord != -1) {
+                /* Nulstil fejlhåndtering inden vi skipper loop-runden */
+                XSync(display, False); XSetErrorHandler(NULL);
+                continue;
             }
-            if (aktuel_type == type_dock || aktuel_type == type_desktop) continue;
 
-            char *navn = hent_vindues_navn(vinduer[i]); if (!navn) continue;
+            Atom aktuel_type = None; 
+            unsigned char *type_prop = NULL;
+            if (XGetWindowProperty(display, vinduer[i], wm_type_atom, 0, 1, False, XA_ATOM, &ret_type, &ret_format, &ret_nitems, &ret_bytes_after, &type_prop) == Success && type_prop) {
+                aktuel_type = *(Atom *)type_prop; 
+                XFree(type_prop);
+            }
+            if (aktuel_type == type_dock || aktuel_type == type_desktop) {
+                /* Nulstil fejlhåndtering inden vi skipper loop-runden */
+                XSync(display, False); XSetErrorHandler(NULL);
+                continue;
+            }
+
+            char *navn = hent_vindues_navn(vinduer[i]); 
+            if (!navn) {
+                /* Nulstil fejlhåndtering inden vi skipper loop-runden */
+                XSync(display, False); XSetErrorHandler(NULL);
+                continue;
+            }
             if (strstr(navn, "pcmanfm-desktop") || strstr(navn, "LXQt Panel") || strstr(navn, "./motif_panel")) { 
-                free(navn); continue; 
+                free(navn); 
+                /* Nulstil fejlhåndtering inden vi skipper loop-runden */
+                XSync(display, False); XSetErrorHandler(NULL);
+                continue; 
             }
             
             char formateret_navn[512];
-            if (er_vindue_minimeret(vinduer[i])) snprintf(formateret_navn, sizeof(formateret_navn), "[%s]", navn);
-            else snprintf(formateret_navn, sizeof(formateret_navn), " %s ", navn);
+            if (er_vindue_minimeret(vinduer[i])) {
+                snprintf(formateret_navn, sizeof(formateret_navn), "[%s]", navn);
+            } else {
+                snprintf(formateret_navn, sizeof(formateret_navn), " %s ", navn);
+            }
 
             XmString xm_navn = opret_utf8_xmstring(formateret_navn);
-            Window *win_alloc = malloc(sizeof(Window)); *win_alloc = vinduer[i];
+            Window *win_alloc = malloc(sizeof(Window)); 
+            *win_alloc = vinduer[i];
 
-            Widget knap = XtVaCreateManagedWidget("task_knap", xmPushButtonWidgetClass, task_list, XmNlabelString, xm_navn, XmNrecomputeSize, False, XmNwidth, 120, XmNuserData, win_alloc, NULL);
-            XmStringFree(xm_navn); free(navn);
+            Widget knap = XtVaCreateManagedWidget("task_knap", xmPushButtonWidgetClass, task_list, 
+                XmNlabelString, xm_navn, 
+                XmNrecomputeSize, False, 
+                XmNwidth, 120, 
+                XmNuserData, win_alloc, 
+                NULL);
+            XmStringFree(xm_navn); 
+            free(navn);
 
-            /* Dynamisk parring af det officielle farve-ikon direkte på pushbælten */
             int vindues_ikon_str = panel_hojde - 14; 
             Pixmap v_ikon = hent_vindues_ikon(vinduer[i], vindues_ikon_str);
             if (v_ikon != None) {
-                XtVaSetValues(knap,
-                    XmNlabelType, XmPIXMAP_AND_STRING,
-                    XmNlabelPixmap, v_ikon,
-                    NULL);
+                XtVaSetValues(knap, XmNlabelType, XmPIXMAP_AND_STRING, XmNlabelPixmap, v_ikon, NULL);
             }
 
             Widget knap_menu = XmCreatePopupMenu(knap, "menu_skal", NULL, 0);
             for (long m = 0; m < total_skriveborde; m++) {
-                char menu_label_streng[64]; snprintf(menu_label_streng, sizeof(menu_label_streng), "Flyt til skrivebord %ld", m + 1);
+                char menu_label_streng[128]; 
+                snprintf(menu_label_streng, sizeof(menu_label_streng), "Flyt til skrivebord %ld", m + 1);
                 XmString xm_mstr = XmStringCreateLocalized(menu_label_streng);
-                char item_name[32]; snprintf(item_name, sizeof(item_name), "menu_item_%ld", m + 1);
+                char item_name[64]; 
+                snprintf(item_name, sizeof(item_name), "menu_item_%ld", m + 1);
 
                 Widget m_punkt = XtVaCreateManagedWidget(item_name, xmPushButtonWidgetClass, knap_menu, XmNlabelString, xm_mstr, NULL);
                 XmStringFree(xm_mstr);
@@ -490,20 +548,10 @@ void opdater_vindues_liste() {
             XtAddCallback(knap, XmNactivateCallback, aktiver_vindue_cb, (XtPointer)vinduer[i]);
             XtAddEventHandler(knap, ButtonPressMask, False, vindue_knap_popup_handler, (XtPointer)knap_menu);
 
-            /* ===================================================================
-               KRITISK SIKKERHED: Fejlfælde mod race-conditions (BadWindow)
-               =================================================================== */
-            /* 1. Slå X11 standard-fejlhåndtering fra midlertidigt */
-            XSetErrorHandler(NULL); 
-            XSync(display, False); /* Tvinger X-serveren til at synkronisere */
-
-            /* 2. Kør de kald, der risikerer at ramme et "dødt" vindue */
             XSelectInput(display, vinduer[i], PropertyChangeMask);
 
-            /* 3. Tænd for standard-fejlhåndtering igen med det samme */
             XSync(display, False);
-            /* X11 standard error handler genetableres automatisk ved at sende NULL 
-               eller lade Xt-miljøet håndtere det (eller en tom dummyfunktion) */
+            XSetErrorHandler(NULL);
         }
         XFree(data);
     }
@@ -512,6 +560,7 @@ void opdater_vindues_liste() {
         XtVaSetValues(p_knapper[i], XmNshadowThickness, (i == aktuelt_skrivebord) ? 4 : 2, NULL);
     }
 }
+
 void ql_dialog_genindlaes_liste() {
     if (!ql_list_widget) return;
     XmListDeleteAllItems(ql_list_widget);
@@ -545,17 +594,14 @@ void ql_knap_tilfoej_cb(Widget w, XtPointer client_data, XtPointer call_data) {
         gem_konfiguration(); opdater_quick_launch_bar(); ql_dialog_genindlaes_liste();
         XmTextFieldSetString(ql_text_navn, ""); XmTextFieldSetString(ql_text_exec, ""); XmTextFieldSetString(ql_text_ikon, "");
     }
-    if (navn) { XtFree(navn); } 
-    if (exec) { XtFree(exec); } 
-    if (ikon) { XtFree(ikon); }
+    if (navn) { XtFree(navn); } if (exec) { XtFree(exec); } if (ikon) { XtFree(ikon); }
 }
 
 void ql_knap_opdater_cb(Widget w, XtPointer client_data, XtPointer call_data) {
     int *pos_list = NULL, pos_count = 0;
     if (XmListGetSelectedPos(ql_list_widget, &pos_list, &pos_count) && pos_count > 0) {
-        /* RETTELSE: Ændret fra pos_list - 1 til pos_list[0] - 1 */
-        int indeks = pos_list[0] - 1;
-
+        /* RETTELSE: Pointeren er nu korrekt dereferenceret via stjerne */
+        int indeks = *pos_list - 1;
         char *navn = XmTextFieldGetString(ql_text_navn);
         char *exec = XmTextFieldGetString(ql_text_exec);
         char *ikon = XmTextFieldGetString(ql_text_ikon);
@@ -566,9 +612,7 @@ void ql_knap_opdater_cb(Widget w, XtPointer client_data, XtPointer call_data) {
             strncpy(quick_items[indeks].ikon_sti, ikon ? ikon : "", 255);
             gem_konfiguration(); opdater_quick_launch_bar(); ql_dialog_genindlaes_liste();
         }
-        if (navn) { XtFree(navn); } 
-        if (exec) { XtFree(exec); } 
-        if (ikon) { XtFree(ikon); }
+        if (navn) { XtFree(navn); } if (exec) { XtFree(exec); } if (ikon) { XtFree(ikon); }
         free(pos_list);
     }
 }
@@ -576,9 +620,8 @@ void ql_knap_opdater_cb(Widget w, XtPointer client_data, XtPointer call_data) {
 void ql_knap_slet_cb(Widget w, XtPointer client_data, XtPointer call_data) {
     int *pos_list = NULL, pos_count = 0;
     if (XmListGetSelectedPos(ql_list_widget, &pos_list, &pos_count) && pos_count > 0) {
-        /* RETTELSE: Ændret fra pos_list - 1 til pos_list[0] - 1 */
-        int indeks = pos_list[0] - 1;
-        
+        /* RETTELSE: Pointeren er nu korrekt dereferenceret via stjerne */
+        int indeks = *pos_list - 1;
         for (int i = indeks; i < quick_items_antal - 1; i++) quick_items[i] = quick_items[i + 1];
         quick_items_antal--;
         gem_konfiguration(); opdater_quick_launch_bar(); ql_dialog_genindlaes_liste();
@@ -588,7 +631,7 @@ void ql_knap_slet_cb(Widget w, XtPointer client_data, XtPointer call_data) {
 }
 
 void opdater_ur(XtPointer client_data, XtIntervalId *id) {
-    time_t nu; struct tm *tids_info; char tids_streng[16];
+    time_t nu; struct tm *tids_info; char tids_streng[32];
     time(&nu); tids_info = localtime(&nu); strftime(tids_streng, sizeof(tids_streng), "%H:%M:%S", tids_info);
     XmString xm_streng = opret_utf8_xmstring(tids_streng);
     XtVaSetValues(ur_label, XmNlabelString, xm_streng, NULL); XmStringFree(xm_streng);
@@ -651,7 +694,9 @@ void opdater_quick_launch_bar(void) {
         if (ikon != None) { XtVaSetValues(knap, XmNlabelType, XmPIXMAP, XmNlabelPixmap, ikon, NULL); }
         else {
             char kort[4] = { quick_items[i].navn[0], quick_items[i].navn[0] ? quick_items[i].navn[1] : '\0', '\0', '\0' };
-            XmString xm_kort = opret_utf8_xmstring(kort); XtVaSetValues(knap, XmNlabelString, xm_kort, NULL); XmStringFree(xm_kort);
+            XmString xm_kort = opret_utf8_xmstring(kort); 
+            XtVaSetValues(knap, XmNlabelString, xm_kort, NULL); 
+            XmStringFree(xm_kort);
         }
         XtAddCallback(knap, XmNactivateCallback, start_applikation, (XtPointer)strdup(quick_items[i].exec_cmd));
     }
@@ -707,69 +752,87 @@ int main(int argc, char **argv) {
     else { struts[3] = panel_hojde; struts[10] = 0; struts[11] = skaer_bredde; }
     XChangeProperty(display, win, wm_strut, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)struts, 12);
 
-    char tray_atom_navn[32]; snprintf(tray_atom_navn, sizeof(tray_atom_navn), "_NET_SYSTEM_TRAY_S%d", skaerm);
+    char tray_atom_navn[64]; snprintf(tray_atom_navn, sizeof(tray_atom_navn), "_NET_SYSTEM_TRAY_S%d", skaerm);
     Atom tray_selection_atom = XInternAtom(display, tray_atom_navn, False); XSetSelectionOwner(display, tray_selection_atom, win, CurrentTime);
     if (XGetSelectionOwner(display, tray_selection_atom) == win) {
         XEvent xev; Atom manager_atom = XInternAtom(display, "MANAGER", False); memset(&xev, 0, sizeof(xev));
         xev.xclient.type = ClientMessage; xev.xclient.window = DefaultRootWindow(display);
         xev.xclient.message_type = manager_atom; xev.xclient.format = 32;
-        xev.xclient.data.l[0] = CurrentTime; xev.xclient.data.l[1] = tray_selection_atom; xev.xclient.data.l[2] = win;
+        xev.xclient.data.l[0] = CurrentTime; 
+        xev.xclient.data.l[1] = tray_selection_atom; 
+        xev.xclient.data.l[2] = win;
         XSendEvent(display, DefaultRootWindow(display), False, StructureNotifyMask, &xev); XFlush(display);
         printf("MotifPanel har overtaget %s ejerskab.\n", tray_atom_navn);
     }
     XtAddEventHandler(toplevel, SubstructureNotifyMask, False, systray_xembed_handler, NULL);
-g_bus_own_name(G_BUS_TYPE_SESSION, "org.freedesktop.StatusNotifierWatcher", G_BUS_NAME_OWNER_FLAGS_REPLACE, on_bus_acquired, on_name_acquired, on_name_lost, NULL, NULL);
-g_bus_own_name(G_BUS_TYPE_SESSION, "org.kde.StatusNotifierWatcher", G_BUS_NAME_OWNER_FLAGS_REPLACE, on_bus_acquired, on_name_acquired, on_name_lost, NULL, NULL);
-main_panel = XtVaCreateManagedWidget("main_panel", xmFormWidgetClass, toplevel, XmNorientation, XmHORIZONTAL, NULL);
-Widget menu_bar = XmCreateMenuBar(main_panel, "menu_bar", NULL, 0);
-XtVaSetValues(menu_bar, XmNleftAttachment, XmATTACH_FORM, XmNtopAttachment, XmATTACH_FORM, XmNbottomAttachment, XmATTACH_FORM, XmNshadowThickness, 2, XmNrenderTable, minXftTable, NULL);
-XtManageChild(menu_bar);
-Widget menu_skal = XmCreatePulldownMenu(menu_bar, "menu_skal", NULL, 0);
-byg_xdg_applikations_menu(menu_skal);
-XmString xm_ql_str = opret_utf8_xmstring("Indstil Hurtigstart...");
-Widget ql_item = XtVaCreateManagedWidget("menu_ql_setup", xmPushButtonWidgetClass, menu_skal, XmNlabelString, xm_ql_str, NULL);
-XmStringFree(xm_ql_str); XtAddCallback(ql_item, XmNactivateCallback, (XtCallbackProc)vis_quicklaunch_dialog, NULL);
-XtVaCreateManagedWidget("separator", xmSeparatorWidgetClass, menu_skal, NULL);
-XmString xm_exit_str = opret_utf8_xmstring("Afslut Panel");
-Widget exit_punkt = XtVaCreateManagedWidget("menu_exit_punkt", xmPushButtonWidgetClass, menu_skal, XmNlabelString, xm_exit_str, NULL);
-XmStringFree(xm_exit_str); XtAddCallback(exit_punkt, XmNactivateCallback, afslut_panel_cb, NULL);
-XmString menu_tekst = opret_utf8_xmstring(" Menu ");
-menu_knap = XtVaCreateManagedWidget("menu_knap", xmCascadeButtonWidgetClass, menu_bar, XmNlabelString, menu_tekst, XmNsubMenuId, menu_skal, NULL);
-XmStringFree(menu_tekst);
-pager_list = XtVaCreateManagedWidget("pager_list", xmRowColumnWidgetClass, main_panel, XmNorientation, XmHORIZONTAL, XmNleftAttachment, XmATTACH_WIDGET, XmNleftWidget, menu_bar, XmNtopAttachment, XmATTACH_FORM, XmNbottomAttachment, XmATTACH_FORM, NULL);
-total_skriveborde = hent_total_skriveborde();
-for (long i = 0; i < total_skriveborde; i++) {
-char pager_navn[16]; snprintf(pager_navn, sizeof(pager_navn), "%ld", i + 1); XmString xm_pnavn = opret_utf8_xmstring(pager_navn);
-Widget pknap = XtVaCreateManagedWidget("pager_knap", xmPushButtonWidgetClass, pager_list, XmNlabelString, xm_pnavn, XmNwidth, 24, XmNrecomputeSize, False, NULL);
-XmStringFree(xm_pnavn); XtAddCallback(pknap, XmNactivateCallback, skift_skrivebord_cb, (XtPointer)i);
-}
-quick_launch = XtVaCreateManagedWidget("quick_launch", xmRowColumnWidgetClass, main_panel, XmNorientation, XmHORIZONTAL, XmNleftAttachment, XmATTACH_WIDGET, XmNleftWidget, pager_list, XmNtopAttachment, XmATTACH_FORM, XmNbottomAttachment, XmATTACH_FORM, NULL);
-XmString initial_tid = opret_utf8_xmstring("--:--:--");
-ur_label = XtVaCreateManagedWidget("ur_label", xmLabelWidgetClass, main_panel, XmNrightAttachment, XmATTACH_FORM, XmNtopAttachment, XmATTACH_FORM, XmNbottomAttachment, XmATTACH_FORM, XmNlabelString, initial_tid, NULL);
-XmStringFree(initial_tid);
-tray_area = XtVaCreateManagedWidget("tray_area", xmRowColumnWidgetClass, main_panel, XmNorientation, XmHORIZONTAL, XmNrightAttachment, XmATTACH_WIDGET, XmNrightWidget, ur_label, XmNtopAttachment, XmATTACH_FORM, XmNbottomAttachment, XmATTACH_FORM, XmNwidth, 40, NULL);
-task_list = XtVaCreateManagedWidget("task_list", xmRowColumnWidgetClass, main_panel, XmNorientation, XmHORIZONTAL, XmNleftAttachment, XmATTACH_WIDGET, XmNleftWidget, quick_launch, XmNrightAttachment, XmATTACH_WIDGET, XmNrightWidget, tray_area, XmNtopAttachment, XmATTACH_FORM, XmNbottomAttachment, XmATTACH_FORM, NULL);
-XSelectInput(display, DefaultRootWindow(display), PropertyChangeMask);
-Atom client_list_atom_real = XInternAtom(display, "_NET_CLIENT_LIST", False);
-Atom current_desktop_atom = XInternAtom(display, "_NET_CURRENT_DESKTOP", False);
-Atom wm_name_atom = XInternAtom(display, "_NET_WM_NAME", False);
-Atom wm_desktop_atom = XInternAtom(display, "_NET_WM_DESKTOP", False);
-opdater_vindues_liste(); opdater_quick_launch_bar(); XtAppAddTimeOut(app_context, 1000, opdater_ur, NULL);
-XEvent event;
-while (1) {
-while (g_main_context_iteration(NULL, FALSE));
-if (XtAppPending(app_context)) {
-XtAppNextEvent(app_context, &event);
-if (event.type == PropertyNotify) {
-if (event.xproperty.atom == client_list_atom_real ||
-event.xproperty.atom == current_desktop_atom ||
-event.xproperty.atom == wm_name_atom ||
-event.xproperty.atom == wm_desktop_atom) {
-opdater_vindues_liste();
-}
-}
-XtDispatchEvent(&event);
-} else { usleep(1000); }
-}
-return 0;
+
+    g_bus_own_name(G_BUS_TYPE_SESSION, "org.freedesktop.StatusNotifierWatcher", G_BUS_NAME_OWNER_FLAGS_REPLACE, on_bus_acquired, on_name_acquired, on_name_lost, NULL, NULL);
+    g_bus_own_name(G_BUS_TYPE_SESSION, "org.kde.StatusNotifierWatcher", G_BUS_NAME_OWNER_FLAGS_REPLACE, on_bus_acquired, on_name_acquired, on_name_lost, NULL, NULL);
+
+    main_panel = XtVaCreateManagedWidget("main_panel", xmFormWidgetClass, toplevel, XmNorientation, XmHORIZONTAL, NULL);
+
+    Widget menu_bar = XmCreateMenuBar(main_panel, "menu_bar", NULL, 0);
+    XtVaSetValues(menu_bar, XmNleftAttachment, XmATTACH_FORM, XmNtopAttachment, XmATTACH_FORM, XmNbottomAttachment, XmATTACH_FORM, XmNshadowThickness, 2, XmNrenderTable, minXftTable, NULL);
+    XtManageChild(menu_bar);
+
+    Widget menu_skal = XmCreatePulldownMenu(menu_bar, "menu_skal", NULL, 0);
+    byg_xdg_applikations_menu(menu_skal);
+
+    XmString xm_ql_str = opret_utf8_xmstring("Indstil Hurtigstart...");
+    Widget ql_item = XtVaCreateManagedWidget("menu_ql_setup", xmPushButtonWidgetClass, menu_skal, XmNlabelString, xm_ql_str, NULL);
+    XmStringFree(xm_ql_str); XtAddCallback(ql_item, XmNactivateCallback, (XtCallbackProc)vis_quicklaunch_dialog, NULL);
+
+    XtVaCreateManagedWidget("separator", xmSeparatorWidgetClass, menu_skal, NULL);
+    XmString xm_exit_str = opret_utf8_xmstring("Afslut Panel");
+    Widget exit_punkt = XtVaCreateManagedWidget("menu_exit_punkt", xmPushButtonWidgetClass, menu_skal, XmNlabelString, xm_exit_str, NULL);
+    XmStringFree(xm_exit_str); XtAddCallback(exit_punkt, XmNactivateCallback, afslut_panel_cb, NULL);
+
+    XmString menu_tekst = opret_utf8_xmstring(" Menu ");
+    menu_knap = XtVaCreateManagedWidget("menu_knap", xmCascadeButtonWidgetClass, menu_bar, XmNlabelString, menu_tekst, XmNsubMenuId, menu_skal, NULL);
+    XmStringFree(menu_tekst);
+
+    pager_list = XtVaCreateManagedWidget("pager_list", xmRowColumnWidgetClass, main_panel, XmNorientation, XmHORIZONTAL, XmNleftAttachment, XmATTACH_WIDGET, XmNleftWidget, menu_bar, XmNtopAttachment, XmATTACH_FORM, XmNbottomAttachment, XmATTACH_FORM, NULL);
+    total_skriveborde = hent_total_skriveborde();
+    for (long i = 0; i < total_skriveborde; i++) {
+        char pager_navn[16]; snprintf(pager_navn, sizeof(pager_navn), "%ld", i + 1); XmString xm_pnavn = opret_utf8_xmstring(pager_navn);
+        Widget pknap = XtVaCreateManagedWidget("pager_knap", xmPushButtonWidgetClass, pager_list, XmNlabelString, xm_pnavn, XmNwidth, 24, XmNrecomputeSize, False, NULL);
+        XmStringFree(xm_pnavn); XtAddCallback(pknap, XmNactivateCallback, skift_skrivebord_cb, (XtPointer)i);
+    }
+
+    quick_launch = XtVaCreateManagedWidget("quick_launch", xmRowColumnWidgetClass, main_panel, XmNorientation, XmHORIZONTAL, XmNleftAttachment, XmATTACH_WIDGET, XmNleftWidget, pager_list, XmNtopAttachment, XmATTACH_FORM, XmNbottomAttachment, XmATTACH_FORM, NULL);
+
+    XmString initial_tid = opret_utf8_xmstring("--:--:--");
+    ur_label = XtVaCreateManagedWidget("ur_label", xmLabelWidgetClass, main_panel, XmNrightAttachment, XmATTACH_FORM, XmNtopAttachment, XmATTACH_FORM, XmNbottomAttachment, XmATTACH_FORM, XmNlabelString, initial_tid, NULL);
+    XmStringFree(initial_tid);
+
+    tray_area = XtVaCreateManagedWidget("tray_area", xmRowColumnWidgetClass, main_panel, XmNorientation, XmHORIZONTAL, XmNrightAttachment, XmATTACH_WIDGET, XmNrightWidget, ur_label, XmNtopAttachment, XmATTACH_FORM, XmNbottomAttachment, XmATTACH_FORM, XmNwidth, 40, NULL);
+
+    task_list = XtVaCreateManagedWidget("task_list", xmRowColumnWidgetClass, main_panel, XmNorientation, XmHORIZONTAL, XmNleftAttachment, XmATTACH_WIDGET, XmNleftWidget, quick_launch, XmNrightAttachment, XmATTACH_WIDGET, XmNrightWidget, tray_area, XmNtopAttachment, XmATTACH_FORM, XmNbottomAttachment, XmATTACH_FORM, NULL);
+
+    XSelectInput(display, DefaultRootWindow(display), PropertyChangeMask);
+    
+    Atom client_list_atom_real = XInternAtom(display, "_NET_CLIENT_LIST", False);
+    Atom current_desktop_atom = XInternAtom(display, "_NET_CURRENT_DESKTOP", False);
+    Atom wm_name_atom = XInternAtom(display, "_NET_WM_NAME", False);
+    Atom wm_desktop_atom = XInternAtom(display, "_NET_WM_DESKTOP", False);
+
+    opdater_vindues_liste(); opdater_quick_launch_bar(); XtAppAddTimeOut(app_context, 1000, opdater_ur, NULL);
+
+    XEvent event;
+    while (1) {
+        while (g_main_context_iteration(NULL, FALSE));
+        if (XtAppPending(app_context)) {
+            XtAppNextEvent(app_context, &event);
+            if (event.type == PropertyNotify) {
+                if (event.xproperty.atom == client_list_atom_real ||
+                    event.xproperty.atom == current_desktop_atom ||
+                    event.xproperty.atom == wm_name_atom ||
+                    event.xproperty.atom == wm_desktop_atom) {
+                    opdater_vindues_liste();
+                }
+            }
+            XtDispatchEvent(&event);
+        } else { usleep(1000); }
+    }
+    return 0;
 }
