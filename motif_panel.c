@@ -71,6 +71,7 @@ XmString opret_utf8_xmstring(char *tekst);
 void start_applikation(Widget w, XtPointer client_data, XtPointer call_data);
 void opdater_vindues_liste(void);
 Pixmap hent_vindues_ikon(Window win, int maaloes_str);
+char* find_xdg_ikon_sti(const char *ikon_navn, int storrelse);
 
 /* Spørger X-serveren dynamisk om antallet af skriveborde */
 long hent_total_skriveborde() {
@@ -525,8 +526,39 @@ void opdater_vindues_liste() {
             XmStringFree(xm_navn); 
             free(navn);
 
+            /* ===================================================================
+               FEJLSIKKER HYBRID VINDUES-IKON MOTOR (Rettelse mod Qt-forvrængning)
+               =================================================================== */
             int vindues_ikon_str = panel_hojde - 14; 
-            Pixmap v_ikon = hent_vindues_ikon(vinduer[i], vindues_ikon_str);
+            Pixmap v_ikon = None;
+            
+            /* Vi trækker programnavnet ud af vinduestitlen live i hukommelsen */
+            char *ren_navn_lavere = g_ascii_strdown(navn, -1);
+            char *system_ikon_sti = NULL;
+
+            /* Universel ord-opsnapper til systemikoner (Fanger automatisk discord, steam, featherpad, osv.) */
+            char *ord;
+            char *saveptr_name;
+            ord = strtok_r(ren_navn_lavere, " -|/", &saveptr_name);
+            while (ord && !system_ikon_sti) {
+                if (strlen(ord) > 2) {
+                    system_ikon_sti = find_xdg_ikon_sti(ord, 48);
+                }
+                ord = strtok_r(NULL, " -|/", &saveptr_name);
+            }
+            g_free(ren_navn_lavere);
+
+            /* Hvis XDG-søgeren fandt en fejlfri PNG/SVG filsti på disken */
+            if (system_ikon_sti) {
+                v_ikon = motif_grafik_indlaes_fil(system_ikon_sti, vindues_ikon_str, vindues_ikon_str);
+                free(system_ikon_sti);
+            }
+            
+            /* Hvis programmet overhovedet ikke findes på disken, falder vi tilbage på det rå X11 atom */
+            if (v_ikon == None) {
+                v_ikon = hent_vindues_ikon(vinduer[i], vindues_ikon_str);
+            }
+
             if (v_ikon != None) {
                 XtVaSetValues(knap, XmNlabelType, XmPIXMAP_AND_STRING, XmNlabelPixmap, v_ikon, NULL);
             }
@@ -630,6 +662,156 @@ void ql_knap_slet_cb(Widget w, XtPointer client_data, XtPointer call_data) {
     }
 }
 
+/* Slår et Freedesktop ikon-navn op i brugerens tema eller falder tilbage på hicolor */
+/* ===================================================================
+   DESKTOP-AGNOSTISK XDG IKON-SØGEMOTOR (Med binær XSETTINGS-dekoder)
+   =================================================================== */
+char* find_xdg_ikon_sti(const char *ikon_navn, int storrelse) {
+    if (!ikon_navn || strlen(ikon_navn) == 0) return NULL;
+    
+    /* Hvis det allerede er en absolut sti, returnerer vi den bare */
+    if (ikon_navn[0] == '/') return strdup(ikon_navn);
+
+    static char aktivt_tema[128] = "";
+    static gboolean tema_laest = FALSE;
+
+    /* Indlæs brugerens aktive ikontema én gang under opstart */
+    if (!tema_laest) {
+        tema_laest = TRUE;
+        int skaerm = DefaultScreen(display);
+        char atom_navn[64];
+        
+        /* 1. AGNOSTISK X11 SØGNING: Slå op i XSETTINGS-managerens atom */
+        snprintf(atom_navn, sizeof(atom_navn), "_XSETTINGS_S%d", skaerm);
+        Atom selection_atom = XInternAtom(display, atom_navn, False);
+        Window manager_win = XGetSelectionOwner(display, selection_atom);
+        
+        if (manager_win != None) {
+            Atom settings_atom = XInternAtom(display, "_XSETTINGS_SETTINGS", False);
+            Atom faktisk_type; int faktisk_format;
+            unsigned long antal_items, rest_bytes;
+            unsigned char *prop_data = NULL;
+            
+            if (XGetWindowProperty(display, manager_win, settings_atom, 0, 8192, False,
+                                   settings_atom, &faktisk_type, &faktisk_format,
+                                   &antal_items, &rest_bytes, &prop_data) == Success && prop_data) {
+                
+                char *p = (char *)prop_data;
+                const char *nogle_match = "Net/IconThemeName";
+                
+                /* Binær scanning efter ikontemaets nøgle i datastrømmen */
+                for (unsigned long i = 0; i < antal_items - strlen(nogle_match) - 4; i++) {
+                    if (memcmp(p + i, nogle_match, strlen(nogle_match)) == 0) {
+                        char *vaerdi_start = p + i + strlen(nogle_match) + 4;
+                        strncpy(aktivt_tema, vaerdi_start, sizeof(aktivt_tema) - 1);
+                        aktivt_tema[sizeof(aktivt_tema) - 1] = '\0';
+                        /* Rens strengen for eventuelle binære kontroltegn */
+                        for (int j = 0; aktivt_tema[j] != '\0'; j++) {
+                            if (aktivt_tema[j] < 32 || aktivt_tema[j] > 126) {
+                                aktivt_tema[j] = '\0';
+                                break;
+                            }
+                        }
+                        g_strstrip(aktivt_tema);
+                        break;
+                    }
+                }
+                XFree(prop_data);
+            }
+        }
+        
+        /* 2. CONFIG FALLBACK: Hvis XSETTINGS var tomt, så tjek GTK-3 */
+        char *home = getenv("HOME");
+        if (strlen(aktivt_tema) == 0 && home) {
+            char ini_sti[512];
+            snprintf(ini_sti, sizeof(ini_sti), "%s/.config/gtk-3.0/settings.ini", home);
+            FILE *f = fopen(ini_sti, "r");
+            if (f) {
+                char linje[256];
+                while (fgets(linje, sizeof(linje), f)) {
+                    if (g_str_has_prefix(linje, "gtk-icon-theme-name")) {
+                        char *lighedstegn = strchr(linje, '=');
+                        if (lighedstegn) {
+                            strncpy(aktivt_tema, lighedstegn + 1, sizeof(aktivt_tema) - 1);
+                            aktivt_tema[sizeof(aktivt_tema) - 1] = '\0';
+                            g_strstrip(aktivt_tema);
+                            break;
+                        }
+                    }
+                }
+                fclose(f);
+            }
+        }
+        
+        /* 3. CONFIG FALLBACK: Tjek LXQt config */
+        if (strlen(aktivt_tema) == 0 && home) {
+            char lxqt_sti[512];
+            snprintf(lxqt_sti, sizeof(lxqt_sti), "%s/.config/lxqt/lxqt.conf", home);
+            FILE *f = fopen(lxqt_sti, "r");
+            if (f) {
+                char linje[256];
+                while (fgets(linje, sizeof(linje), f)) {
+                    if (g_str_has_prefix(linje, "icon_theme")) {
+                        char *lighedstegn = strchr(linje, '=');
+                        if (lighedstegn) {
+                            strncpy(aktivt_tema, lighedstegn + 1, sizeof(aktivt_tema) - 1);
+                            aktivt_tema[sizeof(aktivt_tema) - 1] = '\0';
+                            g_strstrip(aktivt_tema);
+                            break;
+                        }
+                    }
+                }
+                fclose(f);
+            }
+        }
+
+        /* 4. ABSOLUT FALLBACK */
+        if (strlen(aktivt_tema) == 0) {
+            strncpy(aktivt_tema, "hicolor", sizeof(aktivt_tema) - 1);
+        }
+        
+        g_print("[XDG Icon] System-tema identificeret: '%s'\n", aktivt_tema);
+    }
+
+    char *formater[] = { ".png", ".svg", ".xpm" };
+    char *kategorier[] = { "apps", "categories", "devices", "mimetypes", "actions", "places", "stock" };
+    /* KRITISK UDVIDELSE: 512 tegn forhindrer strengafklipning ved dybe Oxygen-stier */
+    char test_sti[512];
+
+    #define TJEK_STI(sti) if (access(sti, F_OK) == 0) return strdup(sti);
+
+    /* SØGNING 1: Brugerens aktive tema (faste pixelstørrelser + scalable vektorer) */
+    for (int k = 0; k < 7; k++) {
+        for (int f = 0; f < 3; f++) {
+            snprintf(test_sti, sizeof(test_sti), "/usr/share/icons/%s/%dx%d/%s/%s%s", aktivt_tema, storrelse, storrelse, kategorier[k], ikon_navn, formater[f]);
+            TJEK_STI(test_sti);
+            snprintf(test_sti, sizeof(test_sti), "/usr/share/icons/%s/scalable/%s/%s%s", aktivt_tema, kategorier[k], ikon_navn, formater[f]);
+            TJEK_STI(test_sti);
+            snprintf(test_sti, sizeof(test_sti), "/usr/share/icons/%s/48x48@2x/%s/%s%s", aktivt_tema, kategorier[k], ikon_navn, formater[f]);
+            TJEK_STI(test_sti);
+        }
+    }
+
+    /* SØGNING 2: Global hicolor baseline fallback */
+    for (int k = 0; k < 7; k++) {
+        for (int f = 0; f < 3; f++) {
+            snprintf(test_sti, sizeof(test_sti), "/usr/share/icons/hicolor/%dx%d/%s/%s%s", storrelse, storrelse, kategorier[k], ikon_navn, formater[f]);
+            TJEK_STI(test_sti);
+            snprintf(test_sti, sizeof(test_sti), "/usr/share/icons/hicolor/scalable/%s/%s%s", kategorier[k], ikon_navn, formater[f]);
+            TJEK_STI(test_sti);
+        }
+    }
+
+    /* SØGNING 3: Det klassiske /usr/share/pixmaps/ fallback */
+    for (int f = 0; f < 3; f++) {
+        snprintf(test_sti, sizeof(test_sti), "/usr/share/pixmaps/%s%s", ikon_navn, formater[f]);
+        TJEK_STI(test_sti);
+    }
+
+    #undef TJEK_STI
+    return NULL;
+}
+
 void opdater_ur(XtPointer client_data, XtIntervalId *id) {
     time_t nu; struct tm *tids_info; char tids_streng[32];
     time(&nu); tids_info = localtime(&nu); strftime(tids_streng, sizeof(tids_streng), "%H:%M:%S", tids_info);
@@ -644,27 +826,70 @@ void start_applikation(Widget w, XtPointer client_data, XtPointer call_data) {
 }
 
 void generer_menu_niveau(MenuCacheDir *dir, Widget parent_menu) {
-    GSList *l; GSList *children = menu_cache_dir_list_children(dir);
+    GSList *l; 
+    GSList *children = menu_cache_dir_list_children(dir);
+    int menu_ikon_str = panel_hojde - 16; /* Giver en pæn størrelse inde i dropdown-menuen */
+    if (menu_ikon_str < 16) menu_ikon_str = 16;
+
     for (l = children; l != NULL; l = l->next) {
         MenuCacheItem *item = MENU_CACHE_ITEM(l->data);
         MenuCacheType type = menu_cache_item_get_type(item);
+        
         if (type == MENU_CACHE_TYPE_APP) {
             MenuCacheApp *app = MENU_CACHE_APP(item);
             const char *navn = menu_cache_item_get_name(item);
             const char *exec_cmd = menu_cache_app_get_exec(app);
+            const char *raw_ikon_navn = menu_cache_item_get_icon(item);
+
             if (navn && exec_cmd) {
-                char *ren_cmd = strdup(exec_cmd); char *procent = strchr(ren_cmd, '%'); if (procent) *procent = '\0';
+                char *ren_cmd = strdup(exec_cmd); 
+                char *procent = strchr(ren_cmd, '%'); 
+                if (procent) *procent = '\0';
+                
                 XmString xm_navn = opret_utf8_xmstring((char *)navn);
-                Widget m_punkt = XtVaCreateManagedWidget("xdg_app", xmPushButtonWidgetClass, parent_menu, XmNlabelString, xm_navn, NULL);
-                XmStringFree(xm_navn); XtAddCallback(m_punkt, XmNactivateCallback, start_applikation, (XtPointer)ren_cmd);
+                
+                /* Opret menupunktet */
+                Widget m_punkt = XtVaCreateManagedWidget("xdg_app", xmPushButtonWidgetClass, parent_menu, 
+                    XmNlabelString, xm_navn, 
+                    NULL);
+                XmStringFree(xm_navn); 
+                
+                /* ===================================================================
+                   NYT: FREEDESKTOP IKON-PASTE TIL HOVEDMENU
+                   =================================================================== */
+                if (raw_ikon_navn) {
+                    char *absolut_ikon_sti = find_xdg_ikon_sti(raw_ikon_navn, 48); /* Vi beder om 48x48 kilde-ikoner */
+                    if (absolut_ikon_sti) {
+                        /* Load og skaler via dit lynhurtige motif_grafik-modul */
+                        Pixmap m_ikon = motif_grafik_indlaes_fil(absolut_ikon_sti, menu_ikon_str, menu_ikon_str);
+                        if (m_ikon != None) {
+                            XtVaSetValues(m_punkt,
+                                XmNlabelType, XmPIXMAP_AND_STRING, /* Viser ikon og tekst side om side */
+                                XmNlabelPixmap, m_ikon,
+                                NULL);
+                        }
+                        free(absolut_ikon_sti);
+                    }
+                }
+
+                XtAddCallback(m_punkt, XmNactivateCallback, start_applikation, (XtPointer)ren_cmd);
             }
         } else if (type == MENU_CACHE_TYPE_DIR) {
-            MenuCacheDir *sub_dir = MENU_CACHE_DIR(item); const char *kat_navn = menu_cache_item_get_name(item);
+            MenuCacheDir *sub_dir = MENU_CACHE_DIR(item); 
+            const char *kat_navn = menu_cache_item_get_name(item);
+            
             if (kat_navn) {
                 Widget under_menu_skal = XmCreatePulldownMenu(parent_menu, "under_menu", NULL, 0);
                 XmString xm_kat = opret_utf8_xmstring((char *)kat_navn);
-                Widget cascade_btn = XtVaCreateManagedWidget("xdg_kategori", xmCascadeButtonWidgetClass, parent_menu, XmNlabelString, xm_kat, XmNsubMenuId, under_menu_skal, NULL);
-                XmStringFree(xm_kat); (void)cascade_btn; generer_menu_niveau(sub_dir, under_menu_skal);
+                
+                Widget cascade_btn = XtVaCreateManagedWidget("xdg_kategori", xmCascadeButtonWidgetClass, parent_menu, 
+                    XmNlabelString, xm_kat, 
+                    XmNsubMenuId, under_menu_skal, 
+                    NULL);
+                XmStringFree(xm_kat); 
+                (void)cascade_btn; 
+                
+                generer_menu_niveau(sub_dir, under_menu_skal);
             }
         }
     }
