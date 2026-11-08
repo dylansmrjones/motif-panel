@@ -450,8 +450,27 @@ void opdater_vindues_liste() {
         XtUnmanageChildren(kopi_liste, antal_gamle);
         for (int i = 0; i < antal_gamle; i++) {
             if (kopi_liste[i]) {
-                Window *old_win = NULL; XtVaGetValues(kopi_liste[i], XmNuserData, &old_win, NULL);
+                Window *old_win = NULL; 
+                Pixmap gammel_pixmap = None;
+                Pixmap gammel_ins_pixmap = None;
+                
+                /* 1. Hent og frigør det allokerede vindues-id (Klient RAM) */
+                XtVaGetValues(kopi_liste[i], XmNuserData, &old_win, NULL);
                 if (old_win) { free(old_win); }
+                
+                /* 2. SIKKERHEDS-UDVIDELSE: Hent og slet det primære ikon fra X-serveren */
+                XtVaGetValues(kopi_liste[i], XmNlabelPixmap, &gammel_pixmap, NULL);
+                if (gammel_pixmap != None && gammel_pixmap != XmUNSPECIFIED_PIXMAP) {
+                    XFreePixmap(display, gammel_pixmap);
+                }
+
+                /* 3. SIKKERHEDS-UDVIDELSE: Hent og slet det deaktiverede ikon fra X-serveren */
+                XtVaGetValues(kopi_liste[i], XmNlabelInsensitivePixmap, &gammel_ins_pixmap, NULL);
+                if (gammel_ins_pixmap != None && gammel_ins_pixmap != XmUNSPECIFIED_PIXMAP) {
+                    XFreePixmap(display, gammel_ins_pixmap);
+                }
+
+                /* 4. Nu kan knappen destrueres i absolut renhed */
                 XtDestroyWidget(kopi_liste[i]);
             }
         }
@@ -524,7 +543,6 @@ void opdater_vindues_liste() {
                 XmNuserData, win_alloc, 
                 NULL);
             XmStringFree(xm_navn); 
-            free(navn);
 
             /* ===================================================================
                FEJLSIKKER HYBRID VINDUES-IKON MOTOR (Rettelse mod Qt-forvrængning)
@@ -562,6 +580,8 @@ void opdater_vindues_liste() {
             if (v_ikon != None) {
                 XtVaSetValues(knap, XmNlabelType, XmPIXMAP_AND_STRING, XmNlabelPixmap, v_ikon, NULL);
             }
+            
+            free(navn);
 
             Widget knap_menu = XmCreatePopupMenu(knap, "menu_skal", NULL, 0);
             for (long m = 0; m < total_skriveborde; m++) {

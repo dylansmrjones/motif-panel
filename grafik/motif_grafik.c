@@ -24,6 +24,26 @@ void motif_grafik_init(Display *dpy, Visual *vis, Colormap cmap) {
     g_colormap = cmap;
 }
 
+
+/* Universel bit-skift metode baseret på maskens placering */
+unsigned long beregn_x11_pixel(Visual *visual, int r, int g, int b) {
+    unsigned long r_mask = visual->red_mask;
+    unsigned long g_mask = visual->green_mask;
+    unsigned long b_mask = visual->blue_mask;
+
+    // Find bit-positionerne (hvor mange pladser skal vi skubbe værdien til venstre)
+    int r_shift = 0; while (!(r_mask & 1) && r_mask) { r_mask >>= 1; r_shift++; }
+    int g_shift = 0; while (!(g_mask & 1) && g_mask) { g_mask >>= 1; g_shift++; }
+    int b_shift = 0; while (!(b_mask & 1) && b_mask) { b_mask >>= 1; b_shift++; }
+
+    // Skaler 8-bit RGB til maskens reelle bit-størrelse og skub på plads
+    unsigned long p_r = ((r * r_mask) / 255) << r_shift;
+    unsigned long p_g = ((g * g_mask) / 255) << g_shift;
+    unsigned long p_b = ((b * b_mask) / 255) << b_shift;
+
+    return p_r | p_g | p_b;
+}
+
 /* Konverterer en GdkPixbuf til en ægte X11 Pixmap med alfa-blending mod panelbaggrunden */
 static Pixmap pixbuf_til_pixmap(GdkPixbuf *pixbuf, int bredde, int hojde) {
     if (!g_display || !pixbuf) return None;
@@ -57,7 +77,7 @@ static Pixmap pixbuf_til_pixmap(GdkPixbuf *pixbuf, int bredde, int hojde) {
     int bg_r = 0xdc, bg_g = 0xdc, bg_b = 0xdc;
 
     for (int y = 0; y < hojde; y++) {
-        for (int x = 0; x < bredde; x++) {
+                for (int x = 0; x < bredde; x++) {
             guchar *p = pixels + y * rowstride + x * kanaler;
             int r = p[0];
             int g = p[1];
@@ -71,31 +91,31 @@ static Pixmap pixbuf_til_pixmap(GdkPixbuf *pixbuf, int bredde, int hojde) {
                 b = (b * a + bg_b * (255 - a)) / 255;
             }
 
-            /* Hent de præcise RGB-masker fra skærmens Visual for at ramme TrueColor rigtigt */
-            unsigned long pixel_vaerdi = 0;
-            
-            if (g_visual->red_mask == 0xff0000 && g_visual->green_mask == 0xff00 && g_visual->blue_mask == 0xff) {
-                pixel_vaerdi = (r << 16) | (g << 8) | b;
-            } else if (g_visual->red_mask == 0xff && g_visual->green_mask == 0xff00 && g_visual->blue_mask == 0xff0000) {
-                pixel_vaerdi = (b << 16) | (g << 8) | r;
-            } else {
-                /* Universel matematisk bitmask-fordeling hvis overstående fejler */
-                pixel_vaerdi = ((r * g_visual->red_mask / 255) & g_visual->red_mask) |
-                               ((g * g_visual->green_mask / 255) & g_visual->green_mask) |
-                               ((b * g_visual->blue_mask / 255) & g_visual->blue_mask);
-            }
+            /* ===================================================================
+               NY UNIVERSEL RETTELSE: Dynamisk bitmask-beregning ud fra hardwaren
+               =================================================================== */
+            unsigned long pixel_vaerdi = beregn_x11_pixel(g_visual, r, g, b);
 
             /* KRITISK RETTELSE: Vi bruger XPutPixel, som automatisk håndterer rowstride og skærmens endianness */
             XPutPixel(ximage, x, y, pixel_vaerdi);
         }
+
     }
 
     /* Skub billedet op til Pixmap-hukommelsen */
     XPutImage(g_display, pixmap, gc, ximage, 0, 0, 0, 0, bredde, hojde);
     
-    /* Ryd op */
-    XDestroyImage(ximage);
-    XFreeGC(g_display, gc);
+    ximage->data = (char *)malloc(ximage->bytes_per_line * hojde);
+    if (!ximage->data) {
+        /* RETTELSE: Tving data feltet til NULL, så XDestroyImage ved, 
+           at den udelukkende skal frigøre selve kontrolstrukturen i RAM */
+        ximage->data = NULL; 
+        
+        XDestroyImage(ximage);
+        XFreeGC(g_display, gc);
+        XFreePixmap(g_display, pixmap);
+        return None;
+    }
 
     return pixmap;
 }
