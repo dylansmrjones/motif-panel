@@ -1012,8 +1012,23 @@ int main(int argc, char **argv) {
     Widget exit_punkt = XtVaCreateManagedWidget("menu_exit_punkt", xmPushButtonWidgetClass, menu_skal, XmNlabelString, xm_exit_str, NULL);
     XmStringFree(xm_exit_str); XtAddCallback(exit_punkt, XmNactivateCallback, afslut_panel_cb, NULL);
 
-    XmString menu_tekst = opret_utf8_xmstring(" Menu ");
-    menu_knap = XtVaCreateManagedWidget("menu_knap", xmCascadeButtonWidgetClass, menu_bar, XmNlabelString, menu_tekst, XmNsubMenuId, menu_skal, NULL);
+    /* ===================================================================
+       DYNAMISK MENUKNAP MED RETRO-GLYF (UTF-8) OG POSITIONSPIL
+       =================================================================== */
+    char menu_label_buffer[64];
+    if (strcmp(panel_position, "top") == 0) {
+        snprintf(menu_label_buffer, sizeof(menu_label_buffer), " ❖  Menu ▼ ");
+    } else {
+        snprintf(menu_label_buffer, sizeof(menu_label_buffer), " ❖  Menu ▲ ");
+    }
+
+    /* Vi bager bufferen igennem din UTF-8 konverter */
+    XmString menu_tekst = opret_utf8_xmstring(menu_label_buffer);
+    
+    menu_knap = XtVaCreateManagedWidget("menu_knap", xmCascadeButtonWidgetClass, menu_bar, 
+        XmNlabelString, menu_tekst, 
+        XmNsubMenuId, menu_skal, 
+        NULL);
     XmStringFree(menu_tekst);
 
     pager_list = XtVaCreateManagedWidget("pager_list", xmRowColumnWidgetClass, main_panel, XmNorientation, XmHORIZONTAL, XmNleftAttachment, XmATTACH_WIDGET, XmNleftWidget, menu_bar, XmNtopAttachment, XmATTACH_FORM, XmNbottomAttachment, XmATTACH_FORM, NULL);
