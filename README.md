@@ -1,6 +1,6 @@
 # Motif Panel
 
-A lightweight, XDG-compliant desktop panel and taskbar written in pure C and Motif (OpenMotif 2.3). Designed to integrate seamlessly with retro-styled window managers like **EMWM** or **MWM** while providing modern Linux desktop functionality.
+A lightweight, XDG-compliant desktop panel and taskbar written in pure C and Motif (OpenMotif 2.3). Designed to integrate primarily with retro-styled window managers like **EMWM** or **MWM** while providing modern Linux desktop functionality - also with other window managers.
 
 ## Features
 
@@ -38,7 +38,7 @@ Building and installing the panel is straightforward using the provided `Makefil
 
 3. **Install globally (installs to `/usr/local/bin`):**
    ```bash
-   sudo make install
+   make install
    ```
 
 ## Configuration
@@ -60,4 +60,4 @@ To configure your font rendering, add the following resources to your global `~/
 
 ## License
 
-This project is released under the open-source **BSD 2-Clause License**. See the `LICENSE` file for details.
+This project is released under the open-source **2-Clause BSD License**. See the `LICENSE` file for details.
