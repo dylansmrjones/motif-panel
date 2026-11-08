@@ -1054,7 +1054,7 @@ int main(int argc, char **argv) {
     pager_list = XtVaCreateManagedWidget("pager_list", xmRowColumnWidgetClass, main_panel, XmNorientation, XmHORIZONTAL, XmNleftAttachment, XmATTACH_WIDGET, XmNleftWidget, menu_bar, XmNtopAttachment, XmATTACH_FORM, XmNbottomAttachment, XmATTACH_FORM, NULL);
     total_skriveborde = hent_total_skriveborde();
     for (long i = 0; i < total_skriveborde; i++) {
-        char pager_navn[16]; snprintf(pager_navn, sizeof(pager_navn), "%ld", i + 1); XmString xm_pnavn = opret_utf8_xmstring(pager_navn);
+        char pager_navn[64]; snprintf(pager_navn, sizeof(pager_navn), "%ld", i + 1); XmString xm_pnavn = opret_utf8_xmstring(pager_navn);
         Widget pknap = XtVaCreateManagedWidget("pager_knap", xmPushButtonWidgetClass, pager_list, XmNlabelString, xm_pnavn, XmNwidth, 24, XmNrecomputeSize, False, NULL);
         XmStringFree(xm_pnavn); XtAddCallback(pknap, XmNactivateCallback, skift_skrivebord_cb, (XtPointer)i);
     }
